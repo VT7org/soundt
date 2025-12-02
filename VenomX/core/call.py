@@ -4,6 +4,14 @@
 import asyncio
 from typing import Union
 from pyrogram import Client
+from pytgcalls import filters
+from pyrogram.errors import (
+    ChannelsTooMuch,
+    ChatAdminRequired,
+    FloodWait,
+    InviteRequestSent,
+    UserAlreadyParticipant,
+)
 from ntgcalls import TelegramServerError
 from pyrogram.types import InlineKeyboardMarkup
 from pytgcalls import PyTgCalls, filters
@@ -12,10 +20,9 @@ from pytgcalls.types import (
     ChatUpdate,
     GroupCallConfig,
     MediaStream,
+    StreamAudioEnded,
     Update,
-)
-from pytgcalls.types import StreamAudioEnded
-
+) 
 import config
 from strings import get_string
 from VenomX import LOGGER, Platform, app, userbot
@@ -37,15 +44,6 @@ from VenomX.utils.exceptions import AssistantErr
 from VenomX.utils.inline.play import stream_markup, telegram_markup
 from VenomX.utils.stream.autoclear import auto_clean
 from VenomX.utils.thumbnails import gen_thumb
-
-from pyrogram.errors import (
-    ChannelsTooMuch,
-    ChatAdminRequired,
-    FloodWait,
-    InviteRequestSent,
-    UserAlreadyParticipant,
-)
-
 from VenomX.core.userbot import assistants
 from VenomX.utils.database import (
     get_assistant,
@@ -57,8 +55,7 @@ links = {}
 
 
 async def _clear_(chat_id):
-    popped = db.pop(chat_id, None)
-    if popped:
+    popped = db.pop(chat_id, None)    if popped:
         await auto_clean(popped)
     db[chat_id] = []
     await remove_active_video_chat(chat_id)
@@ -66,7 +63,7 @@ async def _clear_(chat_id):
     await set_loop(chat_id, 0)
 
 
-class Call(PyTgCalls):
+class Call:
     def __init__(self):
         self.userbot1 = Client(
             name="SpaceXAss1",
@@ -118,7 +115,6 @@ class Call(PyTgCalls):
             self.userbot5,
             cache_duration=100,
         )
-
 
     async def pause_stream(self, chat_id: int):
         assistant = await group_assistant(self, chat_id)
@@ -212,7 +208,6 @@ class Call(PyTgCalls):
             )
         )
         await assistant.play(chat_id, stream, config=call_config)
-
 
     async def stream_call(self, link):
         assistant = await group_assistant(self, config.LOGGER_ID)
@@ -455,6 +450,7 @@ class Call(PyTgCalls):
                 )
                 db[chat_id][0]["mystic"] = run
                 db[chat_id][0]["markup"] = "tg"
+
             elif "vid_" in queued:
                 mystic = await app.send_message(original_chat_id, _["call_8"])
                 try:
@@ -672,22 +668,29 @@ class Call(PyTgCalls):
             await self.five.start()
 
     async def decorators(self):
-        @self.one.on_update(filters.chat_update(ChatUpdate.Status.LEFT_CALL))
-        @self.two.on_update(filters.chat_update(ChatUpdate.Status.LEFT_CALL))
-        @self.three.on_update(filters.chat_update(ChatUpdate.Status.LEFT_CALL))
-        @self.four.on_update(filters.chat_update(ChatUpdate.Status.LEFT_CALL))
-        @self.five.on_update(filters.chat_update(ChatUpdate.Status.LEFT_CALL))
-        async def stream_services_handler(client, update: ChatUpdate):
+        async def stopped_handler(client, update: ChatUpdate):
             await self.stop_stream(update.chat_id)
 
-        @self.one.on_update(filters.stream_end())
-        @self.two.on_update(filters.stream_end())
-        @self.three.on_update(filters.stream_end())
-        @self.four.on_update(filters.stream_end())
-        @self.five.on_update(filters.stream_end())
-        async def stream_end_handler1(client, update: StreamEnded):
+        async def ended_handler(client, update: StreamEnded):
             if update.stream_type in (StreamEnded.Type.AUDIO, StreamEnded.Type.VIDEO):
                 return
             await self.change_stream(client, update.chat_id)
+
+        clients = []
+        if hasattr(self, "one"):
+            clients.append(self.one)
+        if hasattr(self, "two"):
+            clients.append(self.two)
+        if hasattr(self, "three"):
+            clients.append(self.three)
+        if hasattr(self, "four"):
+            clients.append(self.four)
+        if hasattr(self, "five"):
+            clients.append(self.five)
+
+        for c in clients:
+            c.on_update(filters.chat_update(ChatUpdate.Status.LEFT_CALL))(stopped_handler)
+        for c in clients:
+            c.on_update(filters.stream_end())(ended_handler)
 
 Ayush = Call()
