@@ -14,10 +14,10 @@ except Exception:
     except Exception:
         PeerIdInvalid = Exception
 
-from Tune import app
+from VenomX import app
 from config import LOGGER_ID as LOG_ERROR_ID
-from Tune.utils.exceptions import is_ignored_error
-from Tune.utils.pastebin import TuneBin
+from VenomX.utils.exceptions import is_ignored_error
+from VenomX.utils.pastebin import TuneBin
 
 MAX = 4096
 DEBUG_IGNORE_LOG = True
