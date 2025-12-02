@@ -17,7 +17,7 @@ except Exception:
 from VenomX import app
 from config import LOGGER_ID as LOG_ERROR_ID
 from VenomX.utils.exceptions import is_ignored_error
-from VenomX.utils.pastebin import AyushBin
+from VenomX.utils.pastebin import Ayushbin
 
 MAX = 4096
 DEBUG_IGNORE_LOG = True
@@ -56,7 +56,7 @@ async def send_log(text: str):
 async def send_large_error(text: str, caption: Optional[str] = None):
     paste = None
     try:
-        paste = await AyushBin(text)
+        paste = await Ayushbin(text)
     except Exception:
         paste = None
 
