@@ -61,7 +61,6 @@ class Saavn:
                         elif "content_list" in data and "songs" in data:
                             songs = data.get("songs", [])
                         elif "content_list" in data and isinstance(data["content_list"], list):
-                            # content_list contains ids; try to map from songs if present
                             songs = data.get("songs", [])
                             if not songs:
                                 songs = []
@@ -111,7 +110,6 @@ class Saavn:
                         if "songs" in data and isinstance(data["songs"], list) and data["songs"]:
                             info = data["songs"][0]
                         else:
-                            # fallback to dict itself
                             info = data
                     else:
                         info = {}
@@ -152,25 +150,67 @@ class Saavn:
 
     async def _resize_thumb(self, thumb_url, _id, size=(1280, 720)):
         thumb_path = os.path.join("cache", f"Thumb_{_id}.jpg")
+        os.makedirs(os.path.dirname(thumb_path), exist_ok=True)
+
+        url = ""
+        if thumb_url:
+            if isinstance(thumb_url, list):
+                last = thumb_url[-1] if thumb_url else ""
+                if isinstance(last, dict):
+                    url = last.get("url", "") or last.get("src", "") or last.get("image", "")
+                else:
+                    url = str(last)
+            elif isinstance(thumb_url, dict):
+                url = thumb_url.get("url", "") or thumb_url.get("src", "") or thumb_url.get("image", "")
+            else:
+                url = str(thumb_url)
+
+        url = url.strip()
+        if url.startswith("//"):
+            url = "https:" + url
+        if not url.lower().startswith("http"):
+            if os.path.exists(thumb_path):
+                return thumb_path
+            return ""
 
         if os.path.exists(thumb_path):
             return thumb_path
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(thumb_url) as response:
-                img_data = await response.read()
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        if os.path.exists(thumb_path):
+                            return thumb_path
+                        return ""
+                    img_data = await response.read()
+        except Exception:
+            if os.path.exists(thumb_path):
+                return thumb_path
+            return ""
 
-        img = Image.open(BytesIO(img_data))
-        scale_factor = size[1] / img.height
-        new_width = int(img.width * scale_factor)
+        try:
+            img = Image.open(BytesIO(img_data)).convert("RGB")
+        except Exception:
+            if os.path.exists(thumb_path):
+                return thumb_path
+            return ""
+
+        scale_factor = size[1] / img.height if img.height else 1
+        new_width = max(1, int(img.width * scale_factor))
         new_height = size[1]
 
         resized_img = img.resize((new_width, new_height), Image.LANCZOS)
         new_img = Image.new("RGB", size, (0, 0, 0))
         new_img.paste(resized_img, ((size[0] - new_width) // 2, 0))
 
-        new_img.save(thumb_path, format="JPEG")
-        return thumb_path
+        try:
+            new_img.save(thumb_path, format="JPEG")
+            return thumb_path
+        except Exception:
+            if os.path.exists(thumb_path):
+                return thumb_path
+            return ""
 
     async def track(self, query, limit=10):
         q = query.strip()
@@ -193,7 +233,6 @@ class Saavn:
                             "_id": entry.get("id"),
                         })
                 elif isinstance(data, dict):
-                    # albums, playlists or single dict
                     songs = []
                     if "songs" in data and isinstance(data["songs"], list):
                         songs = data["songs"]
@@ -202,7 +241,6 @@ class Saavn:
                     elif "songs" in data and isinstance(data["songs"], dict):
                         songs = [data["songs"]]
                     else:
-                        # try to handle when dict is single song
                         if data.get("media_url") or data.get("id"):
                             songs = [data]
                     for entry in songs[:limit]:
