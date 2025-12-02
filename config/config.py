@@ -16,7 +16,7 @@ API_ID = int(getenv("API_ID", ""))
 
 API_HASH = getenv("API_HASH", "")
 
-API_URL = os.getenv("API_URL", "https://billaspace.com")
+API_URL = getenv("API_URL", "https://billaspace.com")
 ## Get it from @Botfather in Telegram.
 BOT_TOKEN = getenv("BOT_TOKEN", "")
 
