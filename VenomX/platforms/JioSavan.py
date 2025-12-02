@@ -1,8 +1,8 @@
-
 # All rights reserved.
 #
 
 import os
+import asyncio
 
 import aiohttp
 import yt_dlp
@@ -36,80 +36,115 @@ class Saavn:
     @asyncify
     def playlist(self, url, limit):
         clean_url = self.clean_url(url)
-        ydl_opts = {
-            "extract_flat": True,
-            "force_generic_extractor": True,
-            "quiet": True,
-        }
-        song_info = []
-        count = 0
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            try:
-                playlist_info = ydl.extract_info(clean_url, download=False)
-                for entry in playlist_info["entries"]:
-                    if count == limit:
-                        break
-                    duration_sec = entry.get("duration", 0)
-                    info = {
-                        "title": entry["title"],
-                        "duration_sec": duration_sec,
-                        "duration_min": seconds_to_time(duration_sec),
-                        "thumb": entry.get("thumbnail", ""),
-                        "url": self.clean_url(entry["webpage_url"]),
-                    }
-                    song_info.append(info)
-                    count += 1
-            except Exception:
-                pass
-        return song_info
+        api_url = f"https://saavnapi-nine.vercel.app/result?query={clean_url}&lyrics=false"
+
+        async def _fetch():
+            async with aiohttp.ClientSession() as session:
+                async with session.get(api_url) as resp:
+                    data = await resp.json()
+                    results = []
+                    if isinstance(data, list):
+                        for entry in data[:limit]:
+                            duration = int(entry.get("duration") or 0)
+                            results.append({
+                                "title": entry.get("song") or entry.get("name") or "",
+                                "duration_sec": duration,
+                                "duration_min": seconds_to_time(duration),
+                                "thumb": entry.get("image", ""),
+                                "url": entry.get("perma_url", ""),
+                                "id": entry.get("id", ""),
+                            })
+                    elif isinstance(data, dict):
+                        songs = []
+                        if "songs" in data and isinstance(data["songs"], list):
+                            songs = data["songs"]
+                        elif "content_list" in data and "songs" in data:
+                            songs = data.get("songs", [])
+                        elif "content_list" in data and isinstance(data["content_list"], list):
+                            # content_list contains ids; try to map from songs if present
+                            songs = data.get("songs", [])
+                            if not songs:
+                                songs = []
+                        for entry in songs[:limit]:
+                            duration = int(entry.get("duration") or 0)
+                            results.append({
+                                "title": entry.get("song") or entry.get("name") or "",
+                                "duration_sec": duration,
+                                "duration_min": seconds_to_time(duration),
+                                "thumb": entry.get("image", ""),
+                                "url": entry.get("perma_url", ""),
+                                "id": entry.get("id", ""),
+                            })
+                    return results
+
+        return asyncio.run(_fetch())
 
     async def info(self, url):
         url = self.clean_url(url)
-
         async with aiohttp.ClientSession() as session:
-            if "jiosaavn.com" in url:
-                api_url = "https://saavn.dev/api/songs"
-                params = {"link": url, "limit": 1}
+            if "jiosaavn.com" in url and "song" in url:
+                api_url = "https://saavnapi-nine.vercel.app/lyrics/"
+                params = {"query": url, "lyrics": "false"}
+                async with session.get(api_url, params=params) as response:
+                    data = await response.json()
+                    info = data
+                    duration = int(info.get("duration") or 0)
+                    thumb_url = info.get("image", "")
+                    thumb_path = await self._resize_thumb(thumb_url, info.get("id", ""))
+                    return {
+                        "title": info.get("song", info.get("name", "")),
+                        "duration_sec": duration,
+                        "duration_min": seconds_to_time(duration),
+                        "thumb": thumb_path,
+                        "url": self.clean_url(info.get("perma_url", info.get("url", url))),
+                        "_download_url": info.get("media_url"),
+                        "_id": info.get("id"),
+                    }
             else:
-                api_url = "https://saavn.dev/api/search/songs"
-                params = {"query": url, "limit": 1}
-
-            async with session.get(api_url, params=params) as response:
-                data = await response.json()
-
-                if "jiosaavn.com" in url:
-                    info = data["data"][0]  # For Saavn URLs
-                else:
-                    info = data["data"]["results"][0]  # For search queries
-
-                thumb_url = info["image"][-1]["url"]
-                thumb_path = await self._resize_thumb(thumb_url, info["id"])
-
-                return {
-                    "title": info["name"],
-                    "duration_sec": info.get("duration", 0),
-                    "duration_min": seconds_to_time(info.get("duration", 0)),
-                    "thumb": thumb_path,
-                    "url": self.clean_url(info["url"]),
-                    "_download_url": info["downloadUrl"][-1]["url"],
-                    "_id": info["id"],
-                }
+                api_url = "https://saavnapi-nine.vercel.app/result"
+                params = {"query": url, "lyrics": "false"}
+                async with session.get(api_url, params=params) as response:
+                    data = await response.json()
+                    if isinstance(data, list) and data:
+                        info = data[0]
+                    elif isinstance(data, dict):
+                        if "songs" in data and isinstance(data["songs"], list) and data["songs"]:
+                            info = data["songs"][0]
+                        else:
+                            # fallback to dict itself
+                            info = data
+                    else:
+                        info = {}
+                    duration = int(info.get("duration") or 0)
+                    thumb_url = info.get("image", "")
+                    thumb_path = await self._resize_thumb(thumb_url, info.get("id", ""))
+                    return {
+                        "title": info.get("song", info.get("name", "")),
+                        "duration_sec": duration,
+                        "duration_min": seconds_to_time(duration),
+                        "thumb": thumb_path,
+                        "url": self.clean_url(info.get("perma_url", info.get("url", url))),
+                        "_download_url": info.get("media_url"),
+                        "_id": info.get("id"),
+                    }
 
     async def download(self, url):
         details = await self.info(url)
-        file_path = os.path.join("downloads", f"Saavn_{details['_id']}.mp3")
+        file_path = os.path.join("downloads", f"Saavn_{details['_id']}.m4a")
 
         if not os.path.exists(file_path):
             async with aiohttp.ClientSession() as session:
-                async with session.get(details["_download_url"]) as resp:
+                download_url = details.get("_download_url")
+                if not download_url:
+                    raise ValueError("No download URL found")
+                async with session.get(download_url) as resp:
                     if resp.status == 200:
                         with open(file_path, "wb") as f:
                             while chunk := await resp.content.read(1024):
                                 f.write(chunk)
-                        print(f"Downloaded: {file_path}")
                     else:
                         raise ValueError(
-                            f"Failed to download {details['_download_url']}. HTTP Status: {resp.status}"
+                            f"Failed to download {download_url}. HTTP Status: {resp.status}"
                         )
 
         details["filepath"] = file_path
@@ -136,4 +171,49 @@ class Saavn:
 
         new_img.save(thumb_path, format="JPEG")
         return thumb_path
-        
+
+    async def track(self, query, limit=10):
+        q = query.strip()
+        api_url = "https://saavnapi-nine.vercel.app/result"
+        params = {"query": q, "lyrics": "false"}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(api_url, params=params) as resp:
+                data = await resp.json()
+                results = []
+                if isinstance(data, list):
+                    for entry in data[:limit]:
+                        duration = int(entry.get("duration") or 0)
+                        results.append({
+                            "title": entry.get("song") or entry.get("name") or "",
+                            "duration_sec": duration,
+                            "duration_min": seconds_to_time(duration),
+                            "thumb": entry.get("image", ""),
+                            "url": entry.get("perma_url", entry.get("url", "")),
+                            "_download_url": entry.get("media_url"),
+                            "_id": entry.get("id"),
+                        })
+                elif isinstance(data, dict):
+                    # albums, playlists or single dict
+                    songs = []
+                    if "songs" in data and isinstance(data["songs"], list):
+                        songs = data["songs"]
+                    elif "content_list" in data and isinstance(data.get("songs"), list):
+                        songs = data.get("songs", [])
+                    elif "songs" in data and isinstance(data["songs"], dict):
+                        songs = [data["songs"]]
+                    else:
+                        # try to handle when dict is single song
+                        if data.get("media_url") or data.get("id"):
+                            songs = [data]
+                    for entry in songs[:limit]:
+                        duration = int(entry.get("duration") or 0)
+                        results.append({
+                            "title": entry.get("song") or entry.get("name") or "",
+                            "duration_sec": duration,
+                            "duration_min": seconds_to_time(duration),
+                            "thumb": entry.get("image", ""),
+                            "url": entry.get("perma_url", entry.get("url", "")),
+                            "_download_url": entry.get("media_url"),
+                            "_id": entry.get("id"),
+                        })
+                return results
