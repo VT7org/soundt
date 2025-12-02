@@ -10,7 +10,7 @@ hachoir
 heroku3
 httpx[http2]
 motor
-pillow==9.5.0
+pillow
 psutil
 pytube
 pykeyboard
@@ -27,5 +27,5 @@ uvloop
 flask
 gunicorn
 git+https://github.com/yt-dlp/yt-dlp.git@master
-py-yt-search>=0.2
-pyrofork
+py-yt-search
+pyrotgfork
