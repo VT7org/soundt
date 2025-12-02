@@ -1,100 +1,73 @@
+# uvloop for faster event loop performance
+import asyncio
+import uvloop
+asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+asyncio.set_event_loop(asyncio.new_event_loop())
 
-
-
+import os
 import sys
-
-from pyrogram import Client
-from pyrogram.enums import ChatMemberStatus
-from pyrogram.types import (
-    BotCommand,
-    BotCommandScopeAllChatAdministrators,
-    BotCommandScopeAllGroupChats,
-    BotCommandScopeAllPrivateChats,
-)
+from pyrogram import Client, errors
+from pyrogram.enums import ChatMemberStatus, ParseMode
 
 import config
-
 from ..logging import LOGGER
 
 
-class AyuBot(Client):
+
+class Ayubot(Client):
     def __init__(self):
-        LOGGER(__name__).info(f"Starting Bot")
         super().__init__(
-            "VenomX",
+            name="BillaMusic",
             api_id=config.API_ID,
             api_hash=config.API_HASH,
             bot_token=config.BOT_TOKEN,
             in_memory=True,
+            workers=30,
+            max_concurrent_transmissions=7,
+            parse_mode=ParseMode.HTML,  # Ensures safe HTML parsing
         )
+        LOGGER(__name__).info("🧠 Oᴘᴜs ᴀssɪsᴛᴀɴᴛ ᴇɴɢɪɴᴇ ɪɴɪᴛɪᴀʟɪᴢᴇᴅ...")
 
     async def start(self):
         await super().start()
-        get_me = await self.get_me()
-        self.username = get_me.username
-        self.id = get_me.id
-        self.name = self.me.first_name + " " + (self.me.last_name or "")
-        self.mention = self.me.mention
+
+        me = await self.get_me()
+        self.username, self.id = me.username, me.id
+        self.name = f"{me.first_name} {me.last_name or ''}".strip()
+        self.mention = me.mention
 
         try:
             await self.send_message(
                 config.LOGGER_ID,
-                text=f"<u><b>{self.mention} ʙᴏᴛ sᴛᴀʀᴛᴇᴅ :</b><u>\n\nɪᴅ : <code>{self.id}</code>\nɴᴀᴍᴇ : {self.name}\nᴜsᴇʀɴᴀᴍᴇ : @{self.username}",
+                (
+                    f"<b> Bᴏᴛ ɪs ʀᴇᴀᴅʏ</b>\n\n"
+                    f"• ɴᴀᴍᴇ : {self.name}\n"
+                    f"• ᴜsᴇʀɴᴀᴍᴇ : @{self.username}\n"
+                    f"• ɪᴅ : <code>{self.id}</code>"
+                ),
             )
-        except:
+        except (errors.ChannelInvalid, errors.PeerIdInvalid):
             LOGGER(__name__).error(
-                "Bot has failed to access the log Group. Make sure that you have added your bot to your log channel and promoted as admin!"
+                "🚫 Lᴏɢɢᴇʀ ᴄʜᴀᴛ ɴᴏᴛ ᴀᴄᴄᴇssɪʙʟᴇ. ᴀᴅᴅ Bᴏᴛ ᴛʜᴇʀᴇ & ᴘʀᴏᴍᴏᴛᴇ ɪᴛ ғɪʀsᴛ."
             )
-            # sys.exit()
-        if config.SET_CMDS == str(True):
-            try:
+            sys.exit()
+        except Exception as exc:
+            LOGGER(__name__).error(
+                f"❌ Fᴀɪʟᴇᴅ ᴛᴏ sᴇɴᴅ sᴛᴀʀᴛᴜᴘ ɴᴏᴛɪғɪᴄᴀᴛɪᴏɴ: {type(exc).__name__}"
+            )
+            sys.exit()
 
-                await self.set_bot_commands(
-                    commands=[
-                        BotCommand("start", "sᴛᴀʀᴛ ᴛʜᴇ ʙᴏᴛ"),
-                        BotCommand("help", "ɢᴇᴛ ᴛʜᴇ ʜᴇʟᴘ ᴍᴇɴᴜ"),
-                        BotCommand("ping", "ᴄʜᴇᴄᴋ ʙᴏᴛ ɪs ᴀʟɪᴠᴇ ᴏʀ ᴅᴇᴀᴅ"),
-                    ],
-                    scope=BotCommandScopeAllPrivateChats(),
-                )
-                await self.set_bot_commands(
-                    commands=[
-                        BotCommand("play", "sᴛᴀʀᴛ ᴘʟᴀʏɪɴɢ ʀᴇǫᴜᴇsᴛᴇᴅ sᴏɴɢ"),
-                    ],
-                    scope=BotCommandScopeAllGroupChats(),
-                )
-                await self.set_bot_commands(
-                    commands=[
-                        BotCommand("play", "sᴛᴀʀᴛ ᴘʟᴀʏɪɴɢ ʀᴇǫᴜᴇsᴛᴇᴅ sᴏɴɢ"),
-                        BotCommand("skip", "ᴍᴏᴠᴇ ᴛᴏ ɴᴇxᴛ ᴛʀᴀᴄᴋ ɪɴ ǫᴜᴇᴜᴇ"),
-                        BotCommand("pause", "ᴘᴀᴜsᴇ ᴛʜᴇ ᴄᴜʀʀᴇɴᴛ ᴘʟᴀʏɪɴɢ sᴏɴɢ"),
-                        BotCommand("resume", "ʀᴇsᴜᴍᴇ ᴛʜᴇ ᴘᴀᴜsᴇᴅ sᴏɴɢ"),
-                        BotCommand("end", "ᴄʟᴇᴀʀ ᴛʜᴇ ǫᴜᴇᴜᴇ ᴀᴍᴅ ʟᴇᴀᴠᴇ ᴠᴏɪᴄᴇᴄʜᴀᴛ"),
-                        BotCommand("shuffle", "ʀᴀɴᴅᴏᴍʟʏ sʜᴜғғʟᴇs ᴛʜᴇ ǫᴜᴇᴜᴇᴅ ᴘʟᴀʏʟɪsᴛ."),
-                        BotCommand(
-                            "playmode",
-                            "ᴀʟʟᴏᴡs ʏᴏᴜ ᴛᴏ ᴄʜᴀɴɢᴇ ᴛʜᴇ ᴅᴇғᴀᴜʟᴛ ᴘʟᴀʏᴍᴏᴅᴇ ғᴏʀ ʏᴏᴜʀ ᴄʜᴀᴛ",
-                        ),
-                        BotCommand(
-                            "settings",
-                            "Oᴘᴇɴ ᴛʜᴇ sᴇᴛᴛɪɴɢs ᴏғ ᴛʜᴇ ᴍᴜsɪᴄ ʙᴏᴛ ғᴏʀ ʏᴏᴜʀ ᴄʜᴀᴛ.",
-                        ),
-                    ],
-                    scope=BotCommandScopeAllChatAdministrators(),
-                )
-            except:
-                pass
-        else:
-            pass
         try:
-            a = await self.get_chat_member(config.LOGGER_ID, self.id)
-            if a.status != ChatMemberStatus.ADMINISTRATOR:
-                LOGGER(__name__).error("Please promote Bot as Admin in Logger Group")
+            member = await self.get_chat_member(config.LOGGER_ID, self.id)
+            if member.status != ChatMemberStatus.ADMINISTRATOR:
+                LOGGER(__name__).error(
+                    "⚠️ Bᴏᴛ ᴍᴜsᴛ ʙᴇ ᴀᴅᴍɪɴ ɪɴ ʟᴏɢɢᴇʀ ᴄʜᴀᴛ ᴛᴏ sᴇɴᴅ ʀᴇᴘᴏʀᴛs."
+                )
                 sys.exit()
-        except Exception:
-            pass
-        if get_me.last_name:
-            self.name = get_me.first_name + " " + get_me.last_name
-        else:
-            self.name = get_me.first_name
-        LOGGER(__name__).info(f"MusicBot Started as {self.name}")
+        except Exception as e:
+            LOGGER(__name__).error(
+                f"❌ Eʀʀᴏʀ ᴄʜᴇᴄᴋɪɴɢ ᴀᴅᴍɪɴ sᴛᴀᴛᴜs: {e}"
+            )
+            sys.exit()
+
+        LOGGER(__name__).info(f"🎧 Oᴘᴜs ʙᴏᴛ ʟᴀᴜɴᴄʜᴇᴅ ᴀs {self.name} (@{self.username})")
