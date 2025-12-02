@@ -66,16 +66,59 @@ async def _clear_(chat_id):
     await set_loop(chat_id, 0)
 
 
-class Call:
+class Call(PyTgCalls):
     def __init__(self):
-        self.calls = []
+        self.userbot1 = Client(
+            name="SpaceXAss1",
+            api_id=config.API_ID,
+            api_hash=config.API_HASH,
+            session_string=str(config.STRING1),
+        )
+        self.one = PyTgCalls(
+            self.userbot1,
+            cache_duration=100,
+        )
+        self.userbot2 = Client(
+            name="SpaceXAss2",
+            api_id=config.API_ID,
+            api_hash=config.API_HASH,
+            session_string=str(config.STRING2),
+        )
+        self.two = PyTgCalls(
+            self.userbot2,
+            cache_duration=100,
+        )
+        self.userbot3 = Client(
+            name="SpaceXAss3",
+            api_id=config.API_ID,
+            api_hash=config.API_HASH,
+            session_string=str(config.STRING3),
+        )
+        self.three = PyTgCalls(
+            self.userbot3,
+            cache_duration=100,
+        )
+        self.userbot4 = Client(
+            name="SpaceXAss4",
+            api_id=config.API_ID,
+            api_hash=config.API_HASH,
+            session_string=str(config.STRING4),
+        )
+        self.four = PyTgCalls(
+            self.userbot4,
+            cache_duration=100,
+        )
+        self.userbot5 = Client(
+            name="SpaceXAss5",
+            api_id=config.API_ID,
+            api_hash=config.API_HASH,
+            session_string=str(config.STRING5),
+        )
+        self.five = PyTgCalls(
+            self.userbot5,
+            cache_duration=100,
+        )
 
-        for client in userbot.clients:
-            pycall = PyTgCalls(
-                client,
-                cache_duration=100,
-            )
-            self.calls.append(pycall)
 
     async def pause_stream(self, chat_id: int):
         assistant = await group_assistant(self, chat_id)
@@ -604,40 +647,48 @@ class Call:
 
     async def ping(self):
         pings = []
-        for call in self.calls:
-            pings.append(call.ping)
-        if pings:
-            return str(round(sum(pings) / len(pings), 3))
-        else:
-            LOGGER(__name__).error("No active clients for ping calculation.")
-            return "No active clients"
+        if config.STRING1:
+            pings.append(self.one.ping)
+        if config.STRING2:
+            pings.append(self.two.ping)
+        if config.STRING3:
+            pings.append(self.three.ping)
+        if config.STRING4:
+            pings.append(self.four.ping)
+        if config.STRING5:
+            pings.append(self.five.ping)
+        return str(round(sum(pings) / len(pings), 3))
 
     async def start(self):
-        """Starts all PyTgCalls instances for the existing userbot clients."""
-        LOGGER(__name__).info(f"Starting PyTgCall Clients")
-        await asyncio.gather(*[c.start() for c in self.calls])
+        LOGGER(__name__).info("Starting PyTgCalls Client\n")
+        if config.STRING1:
+            await self.one.start()
+        if config.STRING2:
+            await self.two.start()
+        if config.STRING3:
+            await self.three.start()
+        if config.STRING4:
+            await self.four.start()
+        if config.STRING5:
+            await self.five.start()
 
     async def decorators(self):
-        for call in self.calls:
+        @self.one.on_update(fl.chat_update(ChatUpdate.Status.LEFT_CALL))
+        @self.two.on_update(fl.chat_update(ChatUpdate.Status.LEFT_CALL))
+        @self.three.on_update(fl.chat_update(ChatUpdate.Status.LEFT_CALL))
+        @self.four.on_update(fl.chat_update(ChatUpdate.Status.LEFT_CALL))
+        @self.five.on_update(fl.chat_update(ChatUpdate.Status.LEFT_CALL))
+        async def stream_services_handler(client, update: ChatUpdate):
+            await self.stop_stream(update.chat_id)
 
-            @call.on_update(filters.chat_update(ChatUpdate.Status.LEFT_CALL))
-            async def stream_services_handler(client, update):
-                await self.stop_stream(update.chat_id)
-
-            @call.on_update(filters.stream_end)
-            async def stream_end_handler(client, update: Update):
-                if not isinstance(update, StreamAudioEnded):
-                    return
-                await self.change_stream(client, update.chat_id)
-
-
-    def __getattr__(self, name):
-        if not self.calls:
-            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
-        first_call = self.calls[0]
-        if hasattr(first_call, name):
-            return getattr(first_call, name)
-        raise AttributeError(f"'{type(first_call).__name__}' object has no attribute '{name}'")
-
+        @self.one.on_update(fl.stream_end())
+        @self.two.on_update(fl.stream_end())
+        @self.three.on_update(fl.stream_end())
+        @self.four.on_update(fl.stream_end())
+        @self.five.on_update(fl.stream_end())
+        async def stream_end_handler1(client, update: StreamEnded):
+            if update.stream_type != StreamEnded.Type.AUDIO:
+                return
+            await self.change_stream(client, update.chat_id)
 
 Ayush = Call()
