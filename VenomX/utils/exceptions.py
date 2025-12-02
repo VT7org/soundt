@@ -1,7 +1,7 @@
 
 # All rights reserved.
 #
-
+from typing import Union
 
 class AssistantErr(Exception):
     def __init__(self, errr: str):
