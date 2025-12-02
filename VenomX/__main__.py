@@ -1,5 +1,6 @@
 import asyncio
 import importlib
+import inspect
 import traceback
 import os
 import sys
@@ -99,7 +100,25 @@ async def init():
     except Exception as e:
         LOGGER("VenomX").warning(f"☁️ Cookie warning: {e}")
 
-    await sudo()
+    # --- SAFELY CALL sudo (sync or async) ---
+    try:
+        if sudo is None:
+            LOGGER("VenomX").warning("⚠️ 'sudo' is not defined in VenomX.misc; skipping sudo step.")
+        elif inspect.iscoroutinefunction(sudo):
+            await sudo()
+            LOGGER("VenomX").info("✅ sudo coroutine executed")
+        elif callable(sudo):
+            maybe = sudo()
+            if inspect.isawaitable(maybe):
+                await maybe
+                LOGGER("VenomX").info("✅ awaited returned awaitable from sudo()")
+            else:
+                LOGGER("VenomX").info("✅ sudo() executed (sync)")
+        else:
+            LOGGER("VenomX").warning("⚠️ 'sudo' exists but is not callable; skipping sudo step.")
+    except Exception as e:
+        LOGGER("VenomX").warning(f"⚠️ sudo step failed: {e}")
+
     await load_banned_users()
 
     try:
@@ -180,6 +199,7 @@ async def init():
 
 if __name__ == "__main__":
     try:
+        # modern entry: prefer asyncio.run when possible, but keep compatibility with uvloop
         asyncio.get_event_loop().run_until_complete(init())
     except KeyboardInterrupt:
         LOGGER("VenomX").info("🛑 Bot stopped by user")
