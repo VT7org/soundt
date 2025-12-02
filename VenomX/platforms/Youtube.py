@@ -1,10 +1,10 @@
-
 # All rights reserved.
 #
 import asyncio
 import os
 import random
 import re
+import logging
 
 from async_lru import alru_cache
 from py_yt import VideosSearch
@@ -12,10 +12,24 @@ from pyrogram.enums import MessageEntityType
 from pyrogram.types import Message
 from yt_dlp import YoutubeDL
 
+import httpx
 import config
 from VenomX.utils.database import is_on_off
 from VenomX.utils.decorators import asyncify
 from VenomX.utils.formatters import seconds_to_min, time_to_seconds
+
+# ensure downloads directory exists and will be used for all files
+DOWNLOADS_DIR = os.path.join(os.getcwd(), "downloads")
+os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+
+# setup simple logger (prints to stdout). Adjust as needed in your app.
+logger = logging.getLogger("YouTube")
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+logger.setLevel(logging.INFO)
 
 NOTHING = {"cookies_dead": None}
 
@@ -30,7 +44,6 @@ def cookies():
     cookie_txt_file = random.choice(txt_files)
     cookie_txt_file = os.path.join(folder_path, cookie_txt_file)
     return cookie_txt_file
-    # return f"""cookies/{str(cookie_txt_file).split("/")[-1]}"""
 
 
 async def shell_cmd(cmd):
@@ -323,11 +336,76 @@ class YouTube:
         if videoid:
             link = self.base + link
 
+        # helper to extract video id from link or return None
+        def _extract_vid_id(url: str):
+            m = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11})", url)
+            if m:
+                return m.group(1)
+            return None
+
+        # helper to sanitize filenames
+        def _safe_filename(s: str):
+            return re.sub(r"[\\/*?\"<>|:]", "_", s).strip()
+
+        # Try external API (quick direct url) as first option for audio/video
+        api_url = getattr(config, "API_URL", None)
+        if api_url:
+            try:
+                vidid = _extract_vid_id(link)
+                params = None
+                if songaudio or (not video and not songvideo and not songaudio):
+                    if vidid:
+                        params = {"id": vidid, "format": "mp3"}
+                    else:
+                        params = {"url": link, "format": "mp3"}
+                elif songvideo or video:
+                    # video uses full url param per example
+                    params = {"url": link, "format": "mp4"}
+
+                logger.info("Requesting external API: %s params=%s", api_url, params)
+                # 120 seconds timeout per request
+                async with httpx.AsyncClient(timeout=120.0) as client:
+                    r = await client.get(api_url, params=params)
+                    logger.info("API response status: %s", r.status_code)
+                    if r.status_code == 200:
+                        j = r.json()
+                        data = j.get("data") or {}
+                        dl_url = data.get("url")
+                        file_format = data.get("format")
+                        file_title = data.get("title") or vidid or "download"
+                        if dl_url:
+                            # stream the content in chunks and save to local file
+                            ext = file_format or ("mp4" if (video or songvideo) else "mp3")
+                            filename = f"{vidid or _safe_filename(file_title)}.{ext}"
+                            filepath = os.path.join(DOWNLOADS_DIR, filename)
+                            logger.info("Starting chunked download from API url to %s", filepath)
+                            # download with streaming to file
+                            try:
+                                async with client.stream("GET", dl_url, timeout=120.0) as stream_resp:
+                                    if stream_resp.status_code != 200:
+                                        logger.warning("Streaming URL returned status %s, falling back.", stream_resp.status_code)
+                                        raise Exception("Bad stream status")
+                                    with open(filepath, "wb") as fh:
+                                        async for chunk in stream_resp.aiter_bytes(chunk_size=1024 * 64):
+                                            if chunk:
+                                                fh.write(chunk)
+                                logger.info("Successfully downloaded from API to %s", filepath)
+                                # return local path and direct True (local file saved)
+                                return filepath, True
+                            except Exception as e:
+                                logger.exception("Failed streaming download from API: %s", e)
+                                # fall through to yt-dlp fallback
+                    else:
+                        logger.warning("API returned non-200 status code: %s", r.status_code)
+            except Exception as e:
+                logger.exception("External API request failed: %s", e)
+                # fall back to yt-dlp below
+
         @asyncify
         def audio_dl():
             ydl_optssx = {
                 "format": "bestaudio/best",
-                "outtmpl": "downloads/%(id)s.%(ext)s",
+                "outtmpl": os.path.join(DOWNLOADS_DIR, "%(id)s.%(ext)s"),
                 "geo_bypass": True,
                 "noplaylist": True,
                 "nocheckcertificate": True,
@@ -335,11 +413,14 @@ class YouTube:
                 "no_warnings": True,
                 "cookiefile": f"{cookies()}",
                 "prefer_ffmpeg": True,
+                # enable concurrent fragment downloads for faster fragment assembly
+                "concurrent_fragment_downloads": 5,
+                "continuedl": True,
             }
 
             with YoutubeDL(ydl_optssx) as x:
                 info = x.extract_info(link, False)
-                xyz = os.path.join("downloads", f"{info['id']}.{info['ext']}")
+                xyz = os.path.join(DOWNLOADS_DIR, f"{info['id']}.{info['ext']}")
                 if os.path.exists(xyz):
                     return xyz
                 x.download([link])
@@ -349,7 +430,7 @@ class YouTube:
         def video_dl():
             ydl_optssx = {
                 "format": "(bestvideo[height<=?720][width<=?1280][ext=mp4])+(bestaudio[ext=m4a])",
-                "outtmpl": "downloads/%(id)s.%(ext)s",
+                "outtmpl": os.path.join(DOWNLOADS_DIR, "%(id)s.%(ext)s"),
                 "geo_bypass": True,
                 "noplaylist": True,
                 "nocheckcertificate": True,
@@ -357,11 +438,14 @@ class YouTube:
                 "no_warnings": True,
                 "prefer_ffmpeg": True,
                 "cookiefile": f"{cookies()}",
+                # faster fragment downloads
+                "concurrent_fragment_downloads": 5,
+                "continuedl": True,
             }
 
             with YoutubeDL(ydl_optssx) as x:
                 info = x.extract_info(link, False)
-                xyz = os.path.join("downloads", f"{info['id']}.{info['ext']}")
+                xyz = os.path.join(DOWNLOADS_DIR, f"{info['id']}.{info['ext']}")
                 if os.path.exists(xyz):
                     return xyz
                 x.download([link])
@@ -372,7 +456,7 @@ class YouTube:
             formats = f"{format_id}+140"
             ydl_optssx = {
                 "format": formats,
-                "outtmpl": os.path.join("downloads", f"%(id)s_{format_id}.%(ext)s"),
+                "outtmpl": os.path.join(DOWNLOADS_DIR, "%(id)s_%(format_id)s.%(ext)s"),
                 "geo_bypass": True,
                 "noplaylist": True,
                 "nocheckcertificate": True,
@@ -381,19 +465,21 @@ class YouTube:
                 "prefer_ffmpeg": True,
                 "merge_output_format": "mp4",
                 "cookiefile": f"{cookies()}",
+                "concurrent_fragment_downloads": 5,
+                "continuedl": True,
             }
 
             with YoutubeDL(ydl_optssx) as x:
                 info = x.extract_info(link)
                 filename = f"{info['id']}_{format_id}.mp4"
-                file_path = os.path.join("downloads", filename)
+                file_path = os.path.join(DOWNLOADS_DIR, filename)
                 return file_path
 
         @asyncify
         def song_audio_dl():
             ydl_optssx = {
                 "format": format_id,
-                "outtmpl": os.path.join("downloads", f"%(id)s_{format_id}.%(ext)s"),
+                "outtmpl": os.path.join(DOWNLOADS_DIR, "%(id)s_%(format_id)s.%(ext)s"),
                 "geo_bypass": True,
                 "noplaylist": True,
                 "nocheckcertificate": True,
@@ -408,25 +494,32 @@ class YouTube:
                     }
                 ],
                 "cookiefile": f"{cookies()}",
+                "concurrent_fragment_downloads": 5,
+                "continuedl": True,
             }
 
             with YoutubeDL(ydl_optssx) as x:
                 info = x.extract_info(link)
                 filename = f"{info['id']}_{format_id}.mp3"
-                file_path = os.path.join("downloads", filename)
+                file_path = os.path.join(DOWNLOADS_DIR, filename)
                 return file_path
 
         if songvideo:
+            logger.info("Using yt-dlp songvideo flow for link: %s", link)
             return await song_video_dl()
 
         elif songaudio:
+            logger.info("Using yt-dlp songaudio flow for link: %s", link)
             return await song_audio_dl()
 
         elif video:
+            logger.info("Using video flow for link: %s", link)
             if await is_on_off(config.YTDOWNLOADER):
+                logger.info("YTDOWNLOADER enabled in config -> performing internal yt-dlp download")
                 direct = True
                 downloaded_file = await video_dl()
             else:
+                logger.info("Attempting yt-dlp to get direct URL first")
                 command = [
                     "yt-dlp",
                     f"--cookies",
@@ -447,11 +540,15 @@ class YouTube:
                 if stdout:
                     downloaded_file = stdout.decode().split("\n")[0]
                     direct = None
+                    logger.info("yt-dlp provided direct URL for video: %s", downloaded_file)
                 else:
+                    logger.warning("yt-dlp -g failed, falling back to full download via yt-dlp")
                     downloaded_file = await video_dl()
                     direct = True
         else:
+            logger.info("Using audio flow for link: %s", link)
             direct = True
             downloaded_file = await audio_dl()
 
+        logger.info("Download finished. returned=%s direct=%s", downloaded_file, direct)
         return downloaded_file, direct
