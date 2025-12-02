@@ -55,8 +55,10 @@ links = {}
 
 
 async def _clear_(chat_id):
-    popped = db.pop(chat_id, None)    if popped:
+    popped = db.pop(chat_id, None)
+    if popped:
         await auto_clean(popped)
+
     db[chat_id] = []
     await remove_active_video_chat(chat_id)
     await remove_active_chat(chat_id)
