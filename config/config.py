@@ -172,10 +172,12 @@ SET_CMDS = getenv("SET_CMDS", "False")
 
 raw_sessions = getenv("STRING_SESSIONS", "")
 
-# Split the sessions only if raw_sessions is not empty
-STRING_SESSIONS = list(map(str.strip, raw_sessions.split(","))) if raw_sessions else []
+STRING1 = getenv("STRING_SESSION")
+STRING2 = getenv("STRING_SESSION2")
+STRING3 = getenv("STRING_SESSION3")
+STRING4 = getenv("STRING_SESSION4")
+STRING5 = getenv("STRING_SESSION5")
 
-print("STRING_SESSIONS =", STRING_SESSIONS)
 
 ### DONT TOUCH or EDIT codes after this line
 BANNED_USERS = filters.user()
