@@ -20,7 +20,7 @@ API_URL = getenv("API_URL", "https://billaspace.com")
 ## Get it from @Botfather in Telegram.
 BOT_TOKEN = getenv("BOT_TOKEN", "")
 
-
+COOKIE_URL = getenv("COOKIE_URL", None)
 # Database to save your chats and stats... 
 MONGO_DB_URI = getenv("MONGO_DB_URI")
 
