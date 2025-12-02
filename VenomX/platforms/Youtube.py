@@ -1,5 +1,4 @@
-# All rights reserved.
-#
+# All
 import asyncio
 import os
 import random
@@ -12,7 +11,7 @@ from pyrogram.enums import MessageEntityType
 from pyrogram.types import Message
 from yt_dlp import YoutubeDL
 
-import httpx
+import aiohttp
 import aiofiles
 from config import API_URL
 from VenomX.utils.database import is_on_off
@@ -34,8 +33,11 @@ NOTHING = {"cookies_dead": None}
 
 YTDOWNLOADER = True
 YT_CONCURRENT_FRAGMENT_DOWNLOADS = 42
+
 API_TIMEOUT = 120
-STREAM_CHUNK_SIZE = 64 * 1024
+USE_CHUNK_STREAM = True
+CHUNK_SIZE_MB = 8
+CHUNK_SIZE = CHUNK_SIZE_MB * 1024 * 1024
 
 def cookies():
     folder_path = f"{os.getcwd()}/cookies"
@@ -307,7 +309,7 @@ class YouTube:
         if videoid:
             link = self.base + link
         if "&" in link:
-            link = link.split("&")[0]
+        link = link.split("&")[0]
         a = VideosSearch(link, limit=10)
         result = (await a.next()).get("result")
         title = result[query_type]["title"]
@@ -315,6 +317,60 @@ class YouTube:
         vidid = result[query_type]["id"]
         thumbnail = result[query_type]["thumbnails"][0]["url"].split("?")[0]
         return title, duration_min, thumbnail, vidid
+
+    async def _api_download(self, link: str, vidid: str, is_audio: bool) -> str | None:
+        timeout = aiohttp.ClientTimeout(total=API_TIMEOUT)
+        connector = aiohttp.TCPConnector(limit=100, force_close=False)
+        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+            for attempt in range(1, 5):
+                try:
+                    if is_audio:
+                        params = {"id": vidid, "format": "mp3"}
+                    else:
+                        params = {"url": link, "format": "mp4"}
+                    logger.info("API request -> attempt %s url=%s params=%s", attempt, API_URL, params)
+                    async with session.get(API_URL, params=params) as resp:
+                        logger.info("API response status: %s", resp.status)
+                        if resp.status != 200:
+                            raise Exception(f"Non-200 response: {resp.status}")
+                        j = await resp.json()
+                        data = j.get("data") or {}
+                        dl_url = data.get("url")
+                        file_format = data.get("format")
+                        file_title = data.get("title") or vidid or "download"
+                        if not dl_url:
+                            raise Exception("Missing data.url")
+                        ext = file_format or ("mp4" if not is_audio else "mp3")
+                        filename = f"{vidid}.{ext}"
+                        filepath = os.path.join(DOWNLOADS_DIR, filename)
+                        logger.info("Starting full download from API -> %s", dl_url)
+                        async with session.get(dl_url) as file_resp:
+                            if file_resp.status != 200:
+                                raise Exception(f"Download URL non-200: {file_resp.status}")
+                            async with aiofiles.open(filepath, "wb") as afp:
+                                if USE_CHUNK_STREAM:
+                                    async for chunk in file_resp.content.iter_chunked(CHUNK_SIZE):
+                                        await afp.write(chunk)
+                                else:
+                                    content = await file_resp.read()
+                                    await afp.write(content)
+                            logger.info("API download finished -> %s", filepath)
+                            return filepath
+                except asyncio.TimeoutError:
+                    if attempt == 4:
+                        logger.exception("API timed out after 4 attempts")
+                        return None
+                    wait = 2 * attempt
+                    logger.warning("API timeout on attempt %s, retrying in %s seconds...", attempt, wait)
+                    await asyncio.sleep(wait)
+                except Exception as e:
+                    logger.exception("API error on attempt %s: %s", attempt, e)
+                    if attempt == 4:
+                        logger.warning("API failed after 4 attempts, falling back to yt-dlp")
+                        return None
+                    wait = 2 * attempt
+                    await asyncio.sleep(wait)
+        return None
 
     async def download(
         self,
@@ -336,59 +392,17 @@ class YouTube:
                 return m.group(1)
             return None
 
-        def _safe_filename(s: str):
-            return re.sub(r"[\\/*?\"<>|:]", "_", s).strip()
+        vidid = _extract_vid_id(link)
 
-        if API_URL:
-            try:
-                vidid = _extract_vid_id(link)
-                if songaudio or (not video and not songvideo and not songaudio):
-                    params = {"id": vidid} if vidid else {"url": link}
-                    params["format"] = "mp3"
-                elif songvideo or video:
-                    params = {"url": link, "format": "mp4"}
-                else:
-                    params = {"url": link}
-                logger.info("API request -> url=%s params=%s", API_URL, params)
-                async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
-                    resp = await client.get(API_URL, params=params)
-                    logger.info("API response status: %s", resp.status_code)
-                    if resp.status_code != 200:
-                        logger.warning("API returned non-200 (%s). Falling back to yt-dlp.", resp.status_code)
-                        raise Exception("API non-200")
-                    j = resp.json()
-                    data = j.get("data") or {}
-                    dl_url = data.get("url")
-                    file_format = data.get("format")
-                    file_title = data.get("title") or vidid or "download"
-                    if not dl_url:
-                        logger.warning("API response missing data.url — falling back to yt-dlp")
-                        raise Exception("Missing dl_url")
-                    ext = file_format or ("mp4" if (video or songvideo) else "mp3")
-                    filename = f"{vidid or _safe_filename(file_title)}.{ext}"
-                    filepath = os.path.join(DOWNLOADS_DIR, filename)
-                    logger.info("Starting full download from API -> %s", dl_url)
-                    try:
-                        file_resp = await client.get(dl_url, timeout=API_TIMEOUT)
-                        if file_resp.status_code != 200:
-                            logger.warning("Download URL returned non-200: %s", file_resp.status_code)
-                            raise Exception("Bad file status")
-                        content = await file_resp.aread()
-                        async with aiofiles.open(filepath, "wb") as afp:
-                            await afp.write(content)
-                        logger.info("API download finished -> %s", filepath)
-                        return filepath, True
-                    except httpx.TimeoutException as e:
-                        logger.exception("API download timed out: %s", e)
-                    except Exception as e:
-                        logger.exception("API download failed: %s", e)
-            except httpx.TimeoutException as e:
-                logger.exception("API request timed out: %s", e)
-            except Exception as e:
-                logger.exception("API path error: %s", e)
+        if API_URL and vidid:
+            is_audio = songaudio or (not video and not songvideo and not songaudio)
+            api_path = await self._api_download(link, vidid, is_audio)
+            if api_path:
+                return api_path, True
 
         @asyncify
         def audio_dl():
+            import os
             ydl_optssx = {
                 "format": "bestaudio/best",
                 "outtmpl": os.path.join(DOWNLOADS_DIR, "%(id)s.%(ext)s"),
