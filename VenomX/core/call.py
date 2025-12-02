@@ -20,7 +20,7 @@ from pytgcalls.types import (
     ChatUpdate,
     GroupCallConfig,
     MediaStream,
-    StreamAudioEnded,
+    StreamEnded,
     Update,
 ) 
 import config
@@ -117,6 +117,16 @@ class Call:
             self.userbot5,
             cache_duration=100,
         )
+
+    
+    @property
+    def calls(self):
+        items = []
+        for name in ("one", "two", "three", "four", "five"):
+            v = getattr(self, name, None)
+            if v is not None:
+                items.append(v)
+        return items
 
     async def pause_stream(self, chat_id: int):
         assistant = await group_assistant(self, chat_id)
@@ -657,7 +667,7 @@ class Call:
         return str(round(sum(pings) / len(pings), 3))
 
     async def start(self):
-        LOGGER(__name__).info("Starting PyTgCalls Client\n")
+        LOGGER(__name__).info("Starting PyTgCalls Clients...")
         if config.STRING1:
             await self.one.start()
         if config.STRING2:
@@ -670,29 +680,28 @@ class Call:
             await self.five.start()
 
     async def decorators(self):
-        async def stopped_handler(client, update: ChatUpdate):
-            await self.stop_stream(update.chat_id)
-
-        async def ended_handler(client, update: StreamEnded):
-            if update.stream_type in (StreamEnded.Type.AUDIO, StreamEnded.Type.VIDEO):
+        async def _stopped_handler(client, update):
+            try:
+                await self.stop_stream(update.chat_id)
+            except Exception:
                 return
-            await self.change_stream(client, update.chat_id)
 
-        clients = []
-        if hasattr(self, "one"):
-            clients.append(self.one)
-        if hasattr(self, "two"):
-            clients.append(self.two)
-        if hasattr(self, "three"):
-            clients.append(self.three)
-        if hasattr(self, "four"):
-            clients.append(self.four)
-        if hasattr(self, "five"):
-            clients.append(self.five)
+        async def _ended_handler(client, update):
+            try:
+                st = getattr(update, "stream_type", None)
+                if st is not None and StreamEnded is not None and st in (StreamEnded.Type.AUDIO, StreamEnded.Type.VIDEO):
+                    return
+            except Exception:
+                pass
+            try:
+                await self.change_stream(client, update.chat_id)
+            except Exception:
+                return
 
+        clients = [c for c in (getattr(self, n, None) for n in ("one", "two", "three", "four", "five")) if c]
         for c in clients:
-            c.on_update(filters.chat_update(ChatUpdate.Status.LEFT_CALL))(stopped_handler)
+            c.on_update(filters.chat_update(ChatUpdate.Status.LEFT_CALL))(_stopped_handler)
         for c in clients:
-            c.on_update(filters.stream_end())(ended_handler)
+            c.on_update(filters.stream_end())(_ended_handler)
 
 Ayush = Call()
