@@ -1,10 +1,14 @@
 import asyncio
 import importlib
+import traceback
+import os
+import sys
 
 from pyrogram import idle
 from pytgcalls.exceptions import NoActiveGroupCall
 
 import config
+import VenomX as _venom_pkg
 from VenomX import LOGGER, app, userbot
 from VenomX.core.call import Ayush
 from VenomX.misc import sudo
@@ -37,47 +41,91 @@ async def load_banned_users():
         LOGGER("VenomX").error(f"⚠️ Failed to load banned users: {e}")
 
 
+def log_startup_paths():
+    try:
+        LOGGER("VenomX").info("Startup info:")
+        LOGGER("VenomX").info(f" CWD: {os.getcwd()}")
+        LOGGER("VenomX").info(f" Python executable: {sys.executable}")
+        LOGGER("VenomX").info(f" sys.path[0:5]: {sys.path[:5]}")
+    except Exception:
+        pass
+    try:
+        cfg_file = getattr(config, "__file__", None)
+        LOGGER("VenomX").info(f" Config module file: {cfg_file}")
+    except Exception:
+        pass
+    try:
+        LOGGER("VenomX").info(f" VenomX package file: {getattr(_venom_pkg, '__file__', None)}")
+    except Exception:
+        pass
+    try:
+        sessions_count = 0
+        for name in ("STRING1", "STRING2", "STRING3", "STRING4", "STRING5"):
+            if getattr(config, name, None):
+                sessions_count += 1
+        # fallback for older config layout
+        if hasattr(config, "STRING_SESSIONS"):
+            try:
+                sessions_count = len(getattr(config, "STRING_SESSIONS") or [])
+            except Exception:
+                pass
+        LOGGER("VenomX").info(f" Assistant session count (approx): {sessions_count}")
+    except Exception:
+        pass
+    try:
+        LOGGER("VenomX").info(f" Plugin/module count: {len(ALL_MODULES)}")
+    except Exception:
+        pass
+
+
 async def init():
+    log_startup_paths()
+
     if (
-        not config.STRING1
-        and not config.STRING2
-        and not config.STRING3
-        and not config.STRING4
-        and not config.STRING5
+        not getattr(config, "STRING1", None)
+        and not getattr(config, "STRING2", None)
+        and not getattr(config, "STRING3", None)
+        and not getattr(config, "STRING4", None)
+        and not getattr(config, "STRING5", None)
     ):
-        LOGGER(__name__).error("⚠️ Activation Failed - Assistant sessions are missing.")
-        exit()
+        # also accept STRING_SESSIONS list if present
+        if not getattr(config, "STRING_SESSIONS", None):
+            LOGGER("VenomX").error("⚠️ Activation Failed - Assistant sessions are missing.")
+            return
 
     try:
         await fetch_and_store_cookies()
-        LOGGER("VenomX").info("🍪 Cookies Integrated - Y-t music stream ready.")
+        LOGGER("VenomX").info("🍪 Cookies integrated")
     except Exception as e:
-        LOGGER("VenomX").warning(f"☁️ Cookie Warning - {e}")
+        LOGGER("VenomX").warning(f"☁️ Cookie warning: {e}")
 
     await sudo()
-
     await load_banned_users()
 
     try:
         await app.start()
-        LOGGER("VenomX").info("🚀 Bot client started successfully")
+        LOGGER("VenomX").info("🚀 Bot client started")
     except Exception as e:
         LOGGER("VenomX").error(f"❌ Failed to start bot client: {e}")
-        exit()
+        return
 
     try:
-        for all_module in ALL_MODULES:
-            importlib.import_module("VenomX.plugins" + all_module)
-        LOGGER("VenomX.plugins").info("🧩 Module Constellation - All systems synced.")
+        for module_path in ALL_MODULES:
+            importlib.import_module(module_path)
+        LOGGER("VenomX.plugins").info("🧩 Modules imported")
     except Exception as e:
         LOGGER("VenomX").error(f"❌ Failed to load plugins: {e}")
-        exit()
+        try:
+            await app.stop()
+        except:
+            pass
+        return
 
     try:
         await userbot.start()
-        LOGGER("VenomX").info("👤 Userbot started successfully")
+        LOGGER("VenomX").info("👤 Userbot started")
     except Exception as e:
-        LOGGER("VenomX").error(f"⚠️ Userbot start failed: {e}")
+        LOGGER("VenomX").warning(f"⚠️ Userbot start failed: {e}")
 
     try:
         await Ayush.start()
@@ -89,20 +137,22 @@ async def init():
         await Ayush.stream_call("https://te.legra.ph/file/29f784eb49d230ab62e9e.mp4")
         LOGGER("VenomX").info("📡 Voice stream test successful")
     except NoActiveGroupCall:
-        LOGGER("VenomX").error(
-            "🔇 No Active VC - Log Group voice chat is dormant.\n"
-            "💀 Aborting Launch..."
-        )
-        exit()
+        LOGGER("VenomX").error("🔇 No Active VC - Log Group voice chat is dormant. Aborting.")
+        try:
+            await app.stop()
+        except:
+            pass
+        try:
+            await userbot.stop()
+        except:
+            pass
+        return
     except Exception as e:
         LOGGER("VenomX").warning(f"📡 Voice stream test warning: {e}")
 
     try:
         await Ayush.decorators()
-        LOGGER("VenomX").info(
-            "⚡ Online - VenomX music sequence activated.\n"
-            "☁️ Part of VenomX Project."
-        )
+        LOGGER("VenomX").info("⚡ VenomX music sequence activated")
     except Exception as e:
         LOGGER("VenomX").error(f"⚠️ Decorators failed: {e}")
 
@@ -115,15 +165,17 @@ async def init():
     finally:
         try:
             await app.stop()
-            LOGGER("VenomX").info("🤖 Bot client stopped")
         except:
             pass
         try:
             await userbot.stop()
-            LOGGER("VenomX").info("👤 Userbot stopped")
         except:
             pass
-        LOGGER("VenomX").info("🌩️ Cycle Closed - VenomX sleeps.")
+        try:
+            await Ayush.stop()
+        except:
+            pass
+        LOGGER("VenomX").info("🌩️ VenomX stopped")
 
 
 if __name__ == "__main__":
@@ -131,5 +183,5 @@ if __name__ == "__main__":
         asyncio.get_event_loop().run_until_complete(init())
     except KeyboardInterrupt:
         LOGGER("VenomX").info("🛑 Bot stopped by user")
-    except Exception as e:
-        LOGGER("VenomX").error(f"💥 Critical error: {e}")
+    except Exception:
+        LOGGER("VenomX").error("💥 Critical error:\n" + traceback.format_exc())
