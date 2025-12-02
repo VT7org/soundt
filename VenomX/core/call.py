@@ -20,7 +20,6 @@ from pytgcalls.types import (
     ChatUpdate,
     GroupCallConfig,
     MediaStream,
-    StreamEnded,
     Update,
 ) 
 import config
@@ -50,6 +49,18 @@ from VenomX.utils.database import (
     get_lang,
     set_assistant,
 )
+
+try:
+    from pytgcalls.types import StreamEnded  # preferred
+except Exception:
+    try:
+        from pytgcalls.types.streams import StreamEnded
+    except Exception:
+        try:
+            from pytgcalls.types.stream_end import StreamEnded
+        except Exception:
+            StreamEnded = None
+
 
 links = {}
 
