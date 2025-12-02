@@ -79,6 +79,46 @@ def log_startup_paths():
         pass
 
 
+async def safe_notify_startup():
+    """
+    Try to call any startup notification function defined in VenomX.core.bot.
+    This protects against ValueError or other exceptions that may occur when
+    the bot attempts to send a notification (e.g., invalid chat id).
+    """
+    try:
+        bot_mod = importlib.import_module("VenomX.core.bot")
+    except Exception:
+        # no bot module or failed import — nothing to notify
+        return
+
+    # candidate function names that projects commonly use
+    candidates = [
+        "send_startup_notification",
+        "send_startup",
+        "notify_startup",
+        "announce_startup",
+        "startup_notify",
+    ]
+    for name in candidates:
+        fn = getattr(bot_mod, name, None)
+        if callable(fn):
+            try:
+                result = fn()
+                if inspect.isawaitable(result):
+                    await result
+                LOGGER("VenomX").info(f"✅ Called startup notifier: {name}")
+            except ValueError as ve:
+                # This mirrors your logs: catch and log ValueError specifically and continue
+                LOGGER("VenomX.core.bot").error(f"❌ Failed to send startup notification: {ve}")
+                LOGGER("VenomX.core.bot").error(traceback.format_exc())
+            except Exception as e:
+                LOGGER("VenomX.core.bot").warning(f"⚠️ Startup notifier '{name}' raised: {e}")
+                LOGGER("VenomX.core.bot").warning(traceback.format_exc())
+            finally:
+                # whether success or not, don't try other names after a callable was found
+                return
+
+
 async def init():
     log_startup_paths()
 
@@ -127,6 +167,14 @@ async def init():
     except Exception as e:
         LOGGER("VenomX").error(f"❌ Failed to start bot client: {e}")
         return
+
+    # Attempt startup notification but protect from ValueError or other send errors
+    try:
+        await safe_notify_startup()
+    except Exception as e:
+        # safe_notify_startup already logs traceback for inner errors, but be defensive
+        LOGGER("VenomX.core.bot").warning(f"⚠️ safe_notify_startup failed: {e}")
+        LOGGER("VenomX.core.bot").warning(traceback.format_exc())
 
     try:
         for module_path in ALL_MODULES:
@@ -199,7 +247,7 @@ async def init():
 
 if __name__ == "__main__":
     try:
-        # modern entry: prefer asyncio.run when possible, but keep compatibility with uvloop
+        # Keep compatibility with uvloop while using existing run_until_complete entry point
         asyncio.get_event_loop().run_until_complete(init())
     except KeyboardInterrupt:
         LOGGER("VenomX").info("🛑 Bot stopped by user")
