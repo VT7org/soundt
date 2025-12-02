@@ -22,7 +22,7 @@ BOT_TOKEN = getenv("BOT_TOKEN", "")
 
 
 # Database to save your chats and stats... 
-MONGO_DB_URI = getenv("MONGO_DB_URI", "")
+MONGO_DB_URI = getenv("MONGO_DB_URI")
 
 
 CLEANMODE_DELETE_MINS = int(
@@ -33,14 +33,14 @@ CLEANMODE_DELETE_MINS = int(
 # Custom max audio(music) duration for voice chat. set DURATION_LIMIT in variables with your own time(mins), Default to 60 mins.
 
 DURATION_LIMIT_MIN = int(
-    getenv("DURATION_LIMIT", "5400")
+    getenv("DURATION_LIMIT", "17000")
 )  # Remember to give value in Minutes
 
 
 
 # Duration Limit for downloading Songs in MP3 or MP4 format from bot
 SONG_DOWNLOAD_DURATION = int(
-    getenv("SONG_DOWNLOAD_DURATION_LIMIT", "5400")
+    getenv("SONG_DOWNLOAD_DURATION_LIMIT", "17000")
 )  # Remember to give value in Minutes
 
 
@@ -50,7 +50,7 @@ LOGGER_ID = int(getenv("LOGGER_ID", ""))
 
 # Your User ID.
 OWNER_ID = list(
-    map(int, getenv("OWNER_ID", "7048354045").split())
+    map(int, getenv("OWNER_ID", "5960968099").split())
 )  # Input type must be interger
 
 
@@ -98,9 +98,9 @@ HEROKU_APP_NAME = getenv("HEROKU_APP_NAME", "")
 # For customized or modified Repository
 UPSTREAM_REPO = getenv(
     "UPSTREAM_REPO",
-    "https://github.com/venombolteop/VenomMusic",
+    "https://github.com/VT7org/soundt",
 )
-UPSTREAM_BRANCH = getenv("UPSTREAM_BRANCH", "main")
+UPSTREAM_BRANCH = getenv("UPSTREAM_BRANCH", "master")
 
 # GIT TOKEN ( if your edited repo is private)
 GIT_TOKEN = getenv(
@@ -111,11 +111,11 @@ GIT_TOKEN = getenv(
 
 # Only  Links formats are  accepted for this Var value.
 SUPPORT_CHANNEL = getenv(
-    "SUPPORT_CHANNEL", "https://t.me/TomatoFist"
+    "SUPPORT_CHANNEL", "https://t.me/Apexservers"
 )
 
 SUPPORT_GROUP = getenv(
-    "SUPPORT_GROUP", "https://t.me/Itz_venom_family"
+    "SUPPORT_GROUP", "https://t.me/apexdiscusion"
 )  
 
 
@@ -132,7 +132,7 @@ TELEGRAM_DOWNLOAD_EDIT_SLEEP = int(getenv("TELEGRAM_EDIT_SLEEP", "5"))
 
 
 # Your Github Repo.. Will be shown on /start Command
-GITHUB_REPO = getenv("GITHUB_REPO", "https://github.com/venombolteop/VenomMusic")
+GITHUB_REPO = getenv("GITHUB_REPO", "https://github.com")
 
 
 # Spotify Client.. Get it from https://developer.spotify.com/dashboard
@@ -143,7 +143,7 @@ SPOTIFY_CLIENT_SECRET = getenv(
 
 
 # Maximum number of video calls allowed on bot. You can later set it via /set_video_limit on telegram
-VIDEO_STREAM_LIMIT = int(getenv("VIDEO_STREAM_LIMIT", "999"))
+VIDEO_STREAM_LIMIT = int(getenv("VIDEO_STREAM_LIMIT", "99999"))
 
 
 # Maximum Limit Allowed for users to save playlists on bot's server
@@ -168,7 +168,7 @@ TG_VIDEO_FILESIZE_LIMIT = int(
 
 # If you want your bot to setup the commands automatically in the bot's menu set it to true.
 #
-SET_CMDS = getenv("SET_CMDS", "True")
+SET_CMDS = getenv("SET_CMDS", "False")
 
 raw_sessions = getenv("STRING_SESSIONS", "")
 
