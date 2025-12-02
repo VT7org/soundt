@@ -34,7 +34,7 @@ YTDOWNLOADER = True
 YT_CONCURRENT_FRAGMENT_DOWNLOADS = 42
 
 API_TIMEOUT = 120
-USE_CHUNK_STREAM = True
+USE_CHUNK_STREAM = False
 CHUNK_SIZE_MB = 8
 CHUNK_SIZE = CHUNK_SIZE_MB * 1024 * 1024
 
@@ -308,7 +308,7 @@ class YouTube:
         if videoid:
             link = self.base + link
         if "&" in link:
-        link = link.split("&")[0]
+            link = link.split("&")[0]
         a = VideosSearch(link, limit=10)
         result = (await a.next()).get("result")
         title = result[query_type]["title"]
@@ -526,7 +526,7 @@ class YouTube:
                     direct = None
                 else:
                     downloaded_file = await video_dl()
-                    direct = True
+                   direct = True
         else:
             direct = True
             downloaded_file = await audio_dl()
