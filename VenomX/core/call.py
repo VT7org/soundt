@@ -213,15 +213,14 @@ class Call(PyTgCalls):
         )
         await assistant.play(chat_id, stream, config=call_config)
 
+
     async def stream_call(self, link):
         assistant = await group_assistant(self, config.LOGGER_ID)
-        call_config = GroupCallConfig(auto_start=False)
         await assistant.play(
-            config.LOGGER_ID,
+            config.LOG_GROUP_ID,
             MediaStream(link),
-            config=call_config,
         )
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(10)
         await assistant.leave_call(config.LOGGER_ID)
 
     async def join_chat(self, chat_id, attempts=1):
