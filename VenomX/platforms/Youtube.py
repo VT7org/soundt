@@ -34,7 +34,7 @@ YTDOWNLOADER = True
 YT_CONCURRENT_FRAGMENT_DOWNLOADS = 42
 
 API_TIMEOUT = 120
-USE_CHUNK_STREAM = True
+USE_CHUNK_STREAM = False
 CHUNK_SIZE_MB = 8
 CHUNK_SIZE = CHUNK_SIZE_MB * 1024 * 1024
 
@@ -61,6 +61,61 @@ async def shell_cmd(cmd):
             return out.decode("utf-8")
         return stderr_text
     return out.decode("utf-8")
+
+
+async def api_download(link: str, vidid: str, is_audio: bool) -> str | None:
+    timeout = aiohttp.ClientTimeout(total=API_TIMEOUT)
+    connector = aiohttp.TCPConnector(limit=100, force_close=False)
+    async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+        for attempt in range(1, 5):
+            try:
+                if is_audio:
+                    params = {"id": vidid, "format": "mp3"}
+                else:
+                    params = {"id": vidid, "format": "mp4", "url": link}
+                logger.info("API request -> attempt %s url=%s params=%s", attempt, API_URL, params)
+                async with session.get(API_URL, params=params) as resp:
+                    logger.info("API response status: %s", resp.status)
+                    if resp.status != 200:
+                        raise Exception(f"Non-200 response: {resp.status}")
+                    j = await resp.json()
+                    data = j.get("data") or j
+                    dl_url = data.get("downloadUrl")
+                    file_format = data.get("format")
+                    file_title = data.get("title") or vidid or "download"
+                    if not dl_url:
+                        raise Exception("Missing data.url")
+                    ext = file_format or ("mp4" if not is_audio else "mp3")
+                    filename = f"{vidid}.{ext}"
+                    filepath = os.path.join(DOWNLOADS_DIR, filename)
+                    logger.info("Starting full download from API -> %s", dl_url)
+                    async with session.get(dl_url) as file_resp:
+                        if file_resp.status != 200:
+                            raise Exception(f"Download URL non-200: {file_resp.status}")
+                        async with aiofiles.open(filepath, "wb") as afp:
+                            if USE_CHUNK_STREAM:
+                                async for chunk in file_resp.content.iter_chunked(CHUNK_SIZE):
+                                    await afp.write(chunk)
+                            else:
+                                content = await file_resp.read()
+                                await afp.write(content)
+                    logger.info("API download finished -> %s", filepath)
+                    return filepath
+            except asyncio.TimeoutError:
+                if attempt == 12:
+                    logger.exception("API timed out after 4 attempts")
+                    return None
+                wait = 10 * attempt
+                logger.warning("API timeout on attempt %s, retrying in %s seconds...", attempt, wait)
+                await asyncio.sleep(wait)
+            except Exception as e:
+                logger.exception("API error on attempt %s: %s", attempt, e)
+                if attempt == 12:
+                    logger.warning("API failed after 4 attempts, falling back to yt-dlp")
+                    return None
+                wait = 10 * attempt
+                await asyncio.sleep(wait)
+    return None
 
 
 class YouTube:
@@ -314,60 +369,6 @@ class YouTube:
         thumbnail = result[query_type]["thumbnails"][0]["url"].split("?")[0]
         return title, duration_min, thumbnail, vidid
 
-    async def _api_download(self, link: str, vidid: str, is_audio: bool) -> str | None:
-        timeout = aiohttp.ClientTimeout(total=API_TIMEOUT)
-        connector = aiohttp.TCPConnector(limit=100, force_close=False)
-        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-            for attempt in range(1, 5):
-                try:
-                    if is_audio:
-                        params = {"id": vidid, "format": "mp3"}
-                    else:
-                        params = {"id": vidid, "format": "mp4", "url": link}
-                    logger.info("API request -> attempt %s url=%s params=%s", attempt, API_URL, params)
-                    async with session.get(API_URL, params=params) as resp:
-                        logger.info("API response status: %s", resp.status)
-                        if resp.status != 200:
-                            raise Exception(f"Non-200 response: {resp.status}")
-                        j = await resp.json()
-                        data = j.get("data") or j
-                        dl_url = data.get("downloadUrl") or data.get("url")
-                        file_format = data.get("format")
-                        file_title = data.get("title") or vidid or "download"
-                        if not dl_url:
-                            raise Exception("Missing data.url")
-                        ext = file_format or ("mp4" if not is_audio else "mp3")
-                        filename = f"{vidid}.{ext}"
-                        filepath = os.path.join(DOWNLOADS_DIR, filename)
-                        logger.info("Starting full download from API -> %s", dl_url)
-                        async with session.get(dl_url) as file_resp:
-                            if file_resp.status != 200:
-                                raise Exception(f"Download URL non-200: {file_resp.status}")
-                            async with aiofiles.open(filepath, "wb") as afp:
-                                if USE_CHUNK_STREAM:
-                                    async for chunk in file_resp.content.iter_chunked(CHUNK_SIZE):
-                                        await afp.write(chunk)
-                                else:
-                                    content = await file_resp.read()
-                                    await afp.write(content)
-                        logger.info("API download finished -> %s", filepath)
-                        return filepath
-                except asyncio.TimeoutError:
-                    if attempt == 4:
-                        logger.exception("API timed out after 4 attempts")
-                        return None
-                    wait = 2 * attempt
-                    logger.warning("API timeout on attempt %s, retrying in %s seconds...", attempt, wait)
-                    await asyncio.sleep(wait)
-                except Exception as e:
-                    logger.exception("API error on attempt %s: %s", attempt, e)
-                    if attempt == 4:
-                        logger.warning("API failed after 4 attempts, falling back to yt-dlp")
-                        return None
-                    wait = 2 * attempt
-                    await asyncio.sleep(wait)
-        return None
-
     async def download(
         self,
         link: str,
@@ -392,7 +393,7 @@ class YouTube:
 
         if API_URL and vidid:
             is_audio = bool(songaudio) or (not video and not songvideo and not songaudio)
-            api_path = await self._api_download(link, vidid, is_audio)
+            api_path = await api_download(link, vidid, is_audio)
             if api_path:
                 return api_path, True
 
@@ -502,7 +503,6 @@ class YouTube:
                     return file_path
                 x.download([link])
                 return file_path
-
         if songvideo:
             return await song_video_dl()
         if songaudio:
@@ -534,12 +534,24 @@ class YouTube:
                         downloaded_file = url
                         direct = None
                     else:
+                        if API_URL and vidid:
+                            api_path = await api_download(link, vidid, False)
+                            if api_path:
+                                return api_path, True
                         downloaded_file = await video_dl()
                         direct = True
                 else:
+                    if API_URL and vidid:
+                        api_path = await api_download(link, vidid, False)
+                        if api_path:
+                            return api_path, True
                     downloaded_file = await video_dl()
                     direct = True
         else:
+            if API_URL and vidid:
+                api_path = await api_download(link, vidid, True)
+                if api_path:
+                    return api_path, True
             direct = True
             downloaded_file = await audio_dl()
 
