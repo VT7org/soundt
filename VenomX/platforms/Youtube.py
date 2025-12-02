@@ -34,18 +34,19 @@ YTDOWNLOADER = True
 YT_CONCURRENT_FRAGMENT_DOWNLOADS = 42
 
 API_TIMEOUT = 120
-USE_CHUNK_STREAM = False
+USE_CHUNK_STREAM = True
 CHUNK_SIZE_MB = 8
 CHUNK_SIZE = CHUNK_SIZE_MB * 1024 * 1024
+
 
 def cookies():
     folder_path = f"{os.getcwd()}/cookies"
     txt_files = [file for file in os.listdir(folder_path) if file.endswith(".txt")]
     if not txt_files:
-        raise FileNotFoundError("No Cookies found in cookies directory make sure your cookies file written  .txt file")
+        raise FileNotFoundError("No cookies .txt files in cookies directory")
     cookie_txt_file = random.choice(txt_files)
-    cookie_txt_file = os.path.join(folder_path, cookie_txt_file)
-    return cookie_txt_file
+    return os.path.join(folder_path, cookie_txt_file)
+
 
 async def shell_cmd(cmd):
     proc = await asyncio.create_subprocess_shell(
@@ -55,27 +56,24 @@ async def shell_cmd(cmd):
     )
     out, errorz = await proc.communicate()
     if errorz:
-        if "unavailable videos are hidden" in (errorz.decode("utf-8")).lower():
+        stderr_text = errorz.decode("utf-8")
+        if "unavailable videos are hidden" in stderr_text.lower():
             return out.decode("utf-8")
-        else:
-            return errorz.decode("utf-8")
+        return stderr_text
     return out.decode("utf-8")
+
 
 class YouTube:
     def __init__(self):
         self.base = "https://www.youtube.com/watch?v="
         self.regex = r"(?:youtube\.com|youtu\.be)"
-        self.status = "https://www.youtube.com/oembed?url="
         self.listbase = "https://youtube.com/playlist?list="
         self.reg = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
     async def exists(self, link: str, videoid: bool | str = None):
         if videoid:
             link = self.base + link
-        if re.search(self.regex, link):
-            return True
-        else:
-            return False
+        return bool(re.search(self.regex, link))
 
     @property
     def use_fallback(self):
@@ -107,7 +105,7 @@ class YouTube:
                 for entity in message.caption_entities:
                     if entity.type == MessageEntityType.TEXT_LINK:
                         return entity.url
-        if offset in (None,):
+        if offset is None:
             return None
         return text[offset : offset + length]
 
@@ -184,8 +182,7 @@ class YouTube:
         stdout, stderr = await proc.communicate()
         if stdout:
             return 1, stdout.decode().split("\n")[0]
-        else:
-            return 0, stderr.decode()
+        return 0, stderr.decode()
 
     @alru_cache(maxsize=None)
     async def playlist(self, link, limit, videoid: bool | str = None):
@@ -272,27 +269,27 @@ class YouTube:
         with ydl:
             formats_available = []
             r = ydl.extract_info(link, download=False)
-            for format in r["formats"]:
+            for fmt in r.get("formats", []):
                 try:
-                    str(format["format"])
+                    str(fmt.get("format"))
                 except Exception:
                     continue
-                if "dash" not in str(format["format"]).lower():
+                if "dash" not in str(fmt.get("format", "")).lower():
                     try:
-                        format["format"]
-                        format["filesize"]
-                        format["format_id"]
-                        format["ext"]
-                        format["format_note"]
+                        fmt["format"]
+                        fmt["filesize"]
+                        fmt["format_id"]
+                        fmt["ext"]
+                        fmt["format_note"]
                     except KeyError:
                         continue
                     formats_available.append(
                         {
-                            "format": format["format"],
-                            "filesize": format["filesize"],
-                            "format_id": format["format_id"],
-                            "ext": format["ext"],
-                            "format_note": format["format_note"],
+                            "format": fmt["format"],
+                            "filesize": fmt["filesize"],
+                            "format_id": fmt["format_id"],
+                            "ext": fmt["ext"],
+                            "format_note": fmt["format_note"],
                             "yturl": link,
                         }
                     )
@@ -326,15 +323,15 @@ class YouTube:
                     if is_audio:
                         params = {"id": vidid, "format": "mp3"}
                     else:
-                        params = {"url": link, "format": "mp4"}
+                        params = {"id": vidid, "format": "mp4", "url": link}
                     logger.info("API request -> attempt %s url=%s params=%s", attempt, API_URL, params)
                     async with session.get(API_URL, params=params) as resp:
                         logger.info("API response status: %s", resp.status)
                         if resp.status != 200:
                             raise Exception(f"Non-200 response: {resp.status}")
                         j = await resp.json()
-                        data = j.get("data") or {}
-                        dl_url = data.get("url")
+                        data = j.get("data") or j
+                        dl_url = data.get("downloadUrl") or data.get("url")
                         file_format = data.get("format")
                         file_title = data.get("title") or vidid or "download"
                         if not dl_url:
@@ -353,8 +350,8 @@ class YouTube:
                                 else:
                                     content = await file_resp.read()
                                     await afp.write(content)
-                            logger.info("API download finished -> %s", filepath)
-                            return filepath
+                        logger.info("API download finished -> %s", filepath)
+                        return filepath
                 except asyncio.TimeoutError:
                     if attempt == 4:
                         logger.exception("API timed out after 4 attempts")
@@ -394,14 +391,13 @@ class YouTube:
         vidid = _extract_vid_id(link)
 
         if API_URL and vidid:
-            is_audio = songaudio or (not video and not songvideo and not songaudio)
+            is_audio = bool(songaudio) or (not video and not songvideo and not songaudio)
             api_path = await self._api_download(link, vidid, is_audio)
             if api_path:
                 return api_path, True
 
         @asyncify
         def audio_dl():
-            import os
             ydl_optssx = {
                 "format": "bestaudio/best",
                 "outtmpl": os.path.join(DOWNLOADS_DIR, "%(id)s.%(ext)s"),
@@ -448,7 +444,7 @@ class YouTube:
 
         @asyncify
         def song_video_dl():
-            formats = f"{format_id}+140"
+            formats = f"{format_id}+140" if format_id else "bestvideo+bestaudio"
             ydl_optssx = {
                 "format": formats,
                 "outtmpl": os.path.join(DOWNLOADS_DIR, "%(id)s_%(format_id)s.%(ext)s"),
@@ -464,15 +460,22 @@ class YouTube:
                 "continuedl": True,
             }
             with YoutubeDL(ydl_optssx) as x:
-                info = x.extract_info(link)
-                filename = f"{info['id']}_{format_id}.mp4"
+                info = x.extract_info(link, False)
+                filename = f"{info['id']}_{info.get('format_id', 'v')}.mp4"
                 file_path = os.path.join(DOWNLOADS_DIR, filename)
+                if os.path.exists(file_path):
+                    return file_path
+                x.download([link])
                 return file_path
 
         @asyncify
         def song_audio_dl():
+            if not format_id:
+                fmt = "bestaudio/best"
+            else:
+                fmt = format_id
             ydl_optssx = {
-                "format": format_id,
+                "format": fmt,
                 "outtmpl": os.path.join(DOWNLOADS_DIR, "%(id)s_%(format_id)s.%(ext)s"),
                 "geo_bypass": True,
                 "noplaylist": True,
@@ -492,19 +495,23 @@ class YouTube:
                 "continuedl": True,
             }
             with YoutubeDL(ydl_optssx) as x:
-                info = x.extract_info(link)
-                filename = f"{info['id']}_{format_id}.mp3"
+                info = x.extract_info(link, False)
+                filename = f"{info['id']}_{info.get('format_id', 'a')}.mp3"
                 file_path = os.path.join(DOWNLOADS_DIR, filename)
+                if os.path.exists(file_path):
+                    return file_path
+                x.download([link])
                 return file_path
 
         if songvideo:
             return await song_video_dl()
-        elif songaudio:
+        if songaudio:
             return await song_audio_dl()
-        elif video:
-            if await is_on_off(__import__("config").YTDOWNLOADER if hasattr(__import__("config"), "YTDOWNLOADER") else YTDOWNLOADER):
-                direct = True
+        if video:
+            use_ytdl_flag = await is_on_off(__import__("config").YTDOWNLOADER if hasattr(__import__("config"), "YTDOWNLOADER") else YTDOWNLOADER)
+            if use_ytdl_flag:
                 downloaded_file = await video_dl()
+                direct = True
             else:
                 command = [
                     "yt-dlp",
@@ -522,12 +529,18 @@ class YouTube:
                 )
                 stdout, stderr = await proc.communicate()
                 if stdout:
-                    downloaded_file = stdout.decode().split("\n")[0]
-                    direct = None
+                    url = stdout.decode().split("\n")[0].strip()
+                    if url:
+                        downloaded_file = url
+                        direct = None
+                    else:
+                        downloaded_file = await video_dl()
+                        direct = True
                 else:
                     downloaded_file = await video_dl()
                     direct = True
         else:
             direct = True
             downloaded_file = await audio_dl()
+
         return downloaded_file, direct
