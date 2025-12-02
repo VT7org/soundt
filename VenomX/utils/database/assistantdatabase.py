@@ -1,16 +1,11 @@
-
-# All rights reserved.
-#
-
 import random
-
+import inspect
 from pytgcalls import PyTgCalls
 
 from VenomX import userbot
 from VenomX.core.mongo import mongodb
 
 db = mongodb.assistants
-
 assistantdict = {}
 
 
@@ -52,8 +47,8 @@ async def set_assistant(chat_id):
         upsert=True,
     )
 
-    userbot = await get_client(ran_assistant)
-    return userbot
+    userbot_client = await get_client(ran_assistant)
+    return userbot_client
 
 
 async def get_assistant(chat_id: int) -> str:
@@ -63,24 +58,24 @@ async def get_assistant(chat_id: int) -> str:
     if not assistant:
         dbassistant = await db.find_one({"chat_id": chat_id})
         if not dbassistant:
-            userbot = await set_assistant(chat_id)
-            return userbot
+            userbot_client = await set_assistant(chat_id)
+            return userbot_client
         else:
             got_assis = dbassistant["assistant"]
             if got_assis in assistants:
                 assistantdict[chat_id] = got_assis
-                userbot = await get_client(got_assis)
-                return userbot
+                userbot_client = await get_client(got_assis)
+                return userbot_client
             else:
-                userbot = await set_assistant(chat_id)
-                return userbot
+                userbot_client = await set_assistant(chat_id)
+                return userbot_client
     else:
         if assistant in assistants:
-            userbot = await get_client(assistant)
-            return userbot
+            userbot_client = await get_client(assistant)
+            return userbot_client
         else:
-            userbot = await set_assistant(chat_id)
-            return userbot
+            userbot_client = await set_assistant(chat_id)
+            return userbot_client
 
 
 async def set_calls_assistant(chat_id):
@@ -118,7 +113,23 @@ async def group_assistant(self, chat_id: int) -> PyTgCalls:
 
     assistant_index = int(assis) - 1
 
-    if 0 <= assistant_index < len(self.calls):
-        return self.calls[assistant_index]
+    calls_attr = self.calls
+
+    if inspect.isawaitable(calls_attr):
+        calls_list = await calls_attr
     else:
-        raise ValueError(f"Assistant index {assistant_index + 1} is out of range.")
+        if callable(calls_attr):
+            result = calls_attr()
+            if inspect.isawaitable(result):
+                calls_list = await result
+            else:
+                calls_list = result
+        else:
+            calls_list = calls_attr
+
+    try:
+        if 0 <= assistant_index < len(calls_list):
+            return calls_list[assistant_index]
+    except TypeError:
+        raise ValueError("Unable to determine call holders list; 'self.calls' is not iterable or has unexpected type.")
+    raise ValueError(f"Assistant index {assistant_index + 1} is out of range.")
