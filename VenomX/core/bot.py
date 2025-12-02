@@ -1,9 +1,4 @@
 
-# All rights reserved.
-#
-import uvloop
-
-uvloop.install()
 
 
 import sys
