@@ -526,7 +526,7 @@ class YouTube:
                     direct = None
                 else:
                     downloaded_file = await video_dl()
-                   direct = True
+                    direct = True
         else:
             direct = True
             downloaded_file = await audio_dl()
