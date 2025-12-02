@@ -32,8 +32,8 @@ logger.setLevel(logging.INFO)
 
 NOTHING = {"cookies_dead": None}
 
-YTDOWNLOADER = False
-YT_CONCURRENT_FRAGMENT_DOWNLOADS = 5
+YTDOWNLOADER = True
+YT_CONCURRENT_FRAGMENT_DOWNLOADS = 42
 API_TIMEOUT = 120
 STREAM_CHUNK_SIZE = 64 * 1024
 
@@ -367,23 +367,21 @@ class YouTube:
                     ext = file_format or ("mp4" if (video or songvideo) else "mp3")
                     filename = f"{vidid or _safe_filename(file_title)}.{ext}"
                     filepath = os.path.join(DOWNLOADS_DIR, filename)
-                    logger.info("Starting streamed download from API -> %s", dl_url)
+                    logger.info("Starting full download from API -> %s", dl_url)
                     try:
-                        async with client.stream("GET", dl_url, timeout=API_TIMEOUT) as stream_resp:
-                            if stream_resp.status_code != 200:
-                                logger.warning("Streaming URL returned non-200: %s", stream_resp.status_code)
-                                raise Exception("Bad stream status")
-                            async with aiofiles.open(filepath, "wb") as afp:
-                                async for chunk in stream_resp.aiter_bytes(chunk_size=STREAM_CHUNK_SIZE):
-                                    if not chunk:
-                                        continue
-                                    await afp.write(chunk)
-                        logger.info("API streamed download finished -> %s", filepath)
+                        file_resp = await client.get(dl_url, timeout=API_TIMEOUT)
+                        if file_resp.status_code != 200:
+                            logger.warning("Download URL returned non-200: %s", file_resp.status_code)
+                            raise Exception("Bad file status")
+                        content = await file_resp.aread()
+                        async with aiofiles.open(filepath, "wb") as afp:
+                            await afp.write(content)
+                        logger.info("API download finished -> %s", filepath)
                         return filepath, True
                     except httpx.TimeoutException as e:
-                        logger.exception("API streaming timed out: %s", e)
+                        logger.exception("API download timed out: %s", e)
                     except Exception as e:
-                        logger.exception("API streaming failed: %s", e)
+                        logger.exception("API download failed: %s", e)
             except httpx.TimeoutException as e:
                 logger.exception("API request timed out: %s", e)
             except Exception as e:
