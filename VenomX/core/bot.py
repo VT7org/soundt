@@ -14,7 +14,7 @@ from ..logging import LOGGER
 
 
 
-class Ayubot(Client):
+class AyuBot(Client):
     def __init__(self):
         super().__init__(
             name="BillaMusic",
